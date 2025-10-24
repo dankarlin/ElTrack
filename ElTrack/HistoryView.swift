@@ -66,13 +66,20 @@ struct HistoryView: View {
             .navigationTitle("Ride History")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    if !dataManager.entries.isEmpty {
-                        Button("Delete Last") {
-                            if let lastEntry = dataManager.entries.first {
-                                dataManager.deleteEntry(lastEntry)
+                    HStack {
+                        if !dataManager.entries.isEmpty {
+                            Button("Delete Last") {
+                                if let lastEntry = dataManager.entries.first {
+                                    dataManager.deleteEntry(lastEntry)
+                                }
                             }
+                            .foregroundColor(.red)
                         }
-                        .foregroundColor(.red)
+                        
+                        Button("Sync") {
+                            dataManager.syncWithCloudKit()
+                        }
+                        .foregroundColor(.blue)
                     }
                 }
                 

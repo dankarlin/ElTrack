@@ -131,16 +131,73 @@ class ElevatorDataManager: ObservableObject {
             self.isLoading = true
         }
         
-        // For now, disable CloudKit fetching during export to avoid the query issue
-        // The app will work with local data, and sync when CloudKit is properly set up
-        print("CloudKit fetch temporarily disabled to avoid query issues. Using local data.")
+        let database = container.privateCloudDatabase
         
-        await MainActor.run {
-            self.isLoading = false
+        // Use a simple query without sort descriptors to avoid queryable field issues
+        let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
+        // Don't add sort descriptors initially - we'll sort locally
+        
+        do {
+            let (matchResults, _) = try await database.records(matching: query)
+            
+            let records = matchResults.compactMap { (recordID, result) -> CKRecord? in
+                switch result {
+                case .success(let record):
+                    return record
+                case .failure(let error):
+                    print("Failed to fetch record \(recordID): \(error)")
+                    return nil
+                }
+            }
+            
+            let cloudEntries = records.compactMap { record in
+                self.convertRecordToEntry(record)
+            }
+            
+            await MainActor.run {
+                // Merge with local entries, avoiding duplicates
+                let localIds = Set(self.entries.map { $0.id })
+                let newEntries = cloudEntries.filter { !localIds.contains($0.id) }
+                self.entries.append(contentsOf: newEntries)
+                // Sort locally by timestamp (most recent first)
+                self.entries.sort { $0.timestamp > $1.timestamp }
+                self.saveToUserDefaults()
+                self.isLoading = false
+                print("Successfully synced \(newEntries.count) new entries from CloudKit (total: \(cloudEntries.count) cloud entries)")
+            }
+        } catch let error as CKError {
+            print("CloudKit fetch error: \(error.localizedDescription)")
+            await MainActor.run {
+                self.isLoading = false
+            }
+            
+            // Try a fallback approach for first-time schema setup
+            if error.code == .unknownItem || error.code == .invalidArguments {
+                print("Attempting to initialize CloudKit schema...")
+                await initializeCloudKitSchemaIfNeeded()
+            }
+        } catch {
+            print("Unexpected fetch error: \(error)")
+            await MainActor.run {
+                self.isLoading = false
+            }
         }
+    }
+    
+    private func initializeCloudKitSchemaIfNeeded() async {
+        // Try to save a sample record to initialize the schema
+        let testEntry = ElevatorEntry(
+            startingFloor: "1",
+            endingFloor: "2",
+            elevator: .h1,
+            timestamp: Date()
+        )
         
-        // TODO: Implement proper CloudKit schema setup in CloudKit Console
-        // Once the schema is properly configured, this can be re-enabled
+        await saveToCloudKit(testEntry)
+        
+        // Then try to delete it
+        await deleteFromCloudKit(testEntry)
+        print("Schema initialization attempt completed")
     }
     
     private func saveToCloudKit(_ entry: ElevatorEntry) async {
@@ -242,27 +299,26 @@ class ElevatorDataManager: ObservableObject {
     // Method to help initialize CloudKit schema by saving a test record
     func initializeCloudKitSchema() {
         Task {
-            // Create a temporary entry to help initialize the schema
-            let testEntry = ElevatorEntry(
-                startingFloor: "1",
-                endingFloor: "2", 
-                elevator: .h1,
-                timestamp: Date()
-            )
-            
+            await initializeCloudKitSchemaIfNeeded()
+        }
+    }
+    
+    // Debug method to check CloudKit status
+    func debugCloudKitStatus() {
+        print("=== CloudKit Debug Info ===")
+        print("Container ID: \(container.containerIdentifier ?? "nil")")
+        print("Record Type: \(recordType)")
+        print("Local entries count: \(entries.count)")
+        
+        Task {
             let database = container.privateCloudDatabase
-            let record = convertEntryToRecord(testEntry)
-            
             do {
-                _ = try await database.save(record)
-                print("CloudKit schema initialized successfully")
-                
-                // Delete the test record
-                try await database.deleteRecord(withID: record.recordID)
-                print("Test record cleaned up")
-                
+                // Try a simple record count query
+                let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
+                let (results, _) = try await database.records(matching: query)
+                print("CloudKit records found: \(results.count)")
             } catch {
-                print("Schema initialization attempt: \(error)")
+                print("CloudKit debug query failed: \(error)")
             }
         }
     }
