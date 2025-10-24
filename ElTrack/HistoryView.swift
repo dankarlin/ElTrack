@@ -46,12 +46,9 @@ class ExportManager: ObservableObject {
 struct HistoryView: View {
     @ObservedObject var dataManager: ElevatorDataManager
     @StateObject private var exportManager = ExportManager()
-    @ObservedObject private var syncStatus: SyncStatusManager
     
-    init(dataManager: ElevatorDataManager) {
-        self.dataManager = dataManager
-        self.syncStatus = dataManager.syncStatus
-    }
+    @State private var showingSyncAlert = false
+    @State private var syncMessage = ""
     
     var body: some View {
         NavigationView {
@@ -99,10 +96,20 @@ struct HistoryView: View {
                         }
                         
                         Button {
-                            dataManager.performManualSync()
+                            dataManager.performManualSync { message in
+                                syncMessage = message
+                                showingSyncAlert = true
+                                
+                                // Auto-dismiss success messages after 3 seconds
+                                if !message.contains("failed") {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                                        showingSyncAlert = false
+                                    }
+                                }
+                            }
                         } label: {
                             HStack(spacing: 4) {
-                                if syncStatus.isLoading {
+                                if dataManager.isLoading {
                                     ProgressView()
                                         .scaleEffect(0.8)
                                 } else {
@@ -112,7 +119,7 @@ struct HistoryView: View {
                             }
                         }
                         .foregroundColor(.blue)
-                        .disabled(syncStatus.isLoading)
+                        .disabled(dataManager.isLoading)
                     }
                 }
                 
@@ -148,12 +155,12 @@ struct HistoryView: View {
                     .padding()
                 }
             }
-            .alert("Sync Status", isPresented: $syncStatus.isShowingAlert) {
+            .alert("Sync Status", isPresented: $showingSyncAlert) {
                 Button("OK") {
-                    syncStatus.hide()
+                    showingSyncAlert = false
                 }
             } message: {
-                Text(syncStatus.message)
+                Text(syncMessage)
             }
             .alert("Export Error", isPresented: $exportManager.showingError) {
                 Button("OK") { }

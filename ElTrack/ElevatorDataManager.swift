@@ -10,46 +10,10 @@ import Combine
 import CloudKit
 
 @MainActor
-class SyncStatusManager: ObservableObject {
-    @Published var isShowingAlert = false
-    @Published var message = ""
-    @Published var isLoading = false
-    
-    func startLoading() {
-        self.isLoading = true
-    }
-    
-    func showResult(message: String, autoHide: Bool = true) {
-        self.message = message
-        self.isLoading = false
-        self.isShowingAlert = true
-        
-        if autoHide {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                self.isShowingAlert = false
-            }
-        }
-    }
-    
-    func showError(_ message: String) {
-        self.message = message
-        self.isLoading = false
-        self.isShowingAlert = true
-        // Don't auto-hide errors
-    }
-    
-    func hide() {
-        self.isShowingAlert = false
-    }
-}
-
-@MainActor
 class ElevatorDataManager: ObservableObject {
     @Published var entries: [ElevatorEntry] = []
     @Published var isLoading = false
     @Published var cloudKitStatus: String = "Unknown"
-    
-    let syncStatus = SyncStatusManager()
     
     private let container = CKContainer(identifier: "iCloud.ElTrackCloudKit")
     private let recordType = "ElevatorEntry"
@@ -168,7 +132,7 @@ class ElevatorDataManager: ObservableObject {
         }
         
         do {
-            try await fetchFromCloudKitWithErrorHandling()
+            let _ = try await fetchFromCloudKitWithErrorHandling()
         } catch let error as CKError {
             print("CloudKit fetch error: \(error.localizedDescription)")
             
@@ -298,12 +262,12 @@ class ElevatorDataManager: ObservableObject {
         }
     }
     
-    // Manual sync with user feedback
-    func performManualSync() {
+    // Manual sync with completion handler to avoid publishing conflicts
+    func performManualSync(completion: @escaping (String) -> Void) {
         print("=== Manual sync started ===")
         
-        // Only show loading state, no alert yet
-        syncStatus.startLoading()
+        // Set loading state
+        isLoading = true
         
         Task {
             let initialCount = entries.count
@@ -329,16 +293,18 @@ class ElevatorDataManager: ObservableObject {
                     message = "Sync complete! Everything is up to date (\(totalRecords) record\(totalRecords == 1 ? "" : "s") total)."
                 }
                 
-                print("Showing sync result: \(message)")
+                print("Sync completed: \(message)")
                 await MainActor.run {
-                    self.syncStatus.showResult(message: message)
+                    self.isLoading = false
+                    completion(message)
                 }
                 
             } catch {
                 print("Sync error: \(error)")
                 let errorMessage = "Sync failed: \(error.localizedDescription)"
                 await MainActor.run {
-                    self.syncStatus.showError(errorMessage)
+                    self.isLoading = false
+                    completion(errorMessage)
                 }
             }
         }
