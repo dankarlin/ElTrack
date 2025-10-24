@@ -8,15 +8,37 @@
 import Foundation
 
 struct ElevatorEntry: Identifiable, Codable {
-    let id = UUID()
+    let id: UUID
     let startingFloor: String
     let endingFloor: String
     let elevator: ElevatorType
     let timestamp: Date
     
+    init(startingFloor: String, endingFloor: String, elevator: ElevatorType, timestamp: Date) {
+        self.id = UUID()
+        self.startingFloor = startingFloor
+        self.endingFloor = endingFloor
+        self.elevator = elevator
+        self.timestamp = timestamp
+    }
+    
+    init(id: UUID, startingFloor: String, endingFloor: String, elevator: ElevatorType, timestamp: Date) {
+        self.id = id
+        self.startingFloor = startingFloor
+        self.endingFloor = endingFloor
+        self.elevator = elevator
+        self.timestamp = timestamp
+    }
+    
     var formattedDate: String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
+        return formatter.string(from: timestamp)
+    }
+    
+    var formattedDateWithDay: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d, yyyy"
         return formatter.string(from: timestamp)
     }
     
@@ -32,6 +54,27 @@ enum ElevatorType: String, CaseIterable, Codable {
     case h2 = "H2"
     case h3 = "H3"
     case se1 = "SE1"
+    case l1 = "L1"
+    case l2 = "L2"
+    case l3 = "L3"
+    case l4 = "L4"
+    
+    var isFrequentlyUsed: Bool {
+        switch self {
+        case .h1, .h2, .h3, .se1:
+            return true
+        case .l1, .l2, .l3, .l4:
+            return false
+        }
+    }
+    
+    static var frequentElevators: [ElevatorType] {
+        return [.h1, .h2, .h3, .se1]
+    }
+    
+    static var lessFrequentElevators: [ElevatorType] {
+        return [.l1, .l2, .l3, .l4]
+    }
 }
 
 enum FloorOption: String, CaseIterable, Codable {

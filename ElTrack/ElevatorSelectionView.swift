@@ -16,12 +16,27 @@ struct ElevatorSelectionView: View {
                 .font(.headline)
                 .foregroundColor(.primary)
             
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
-                ForEach(ElevatorType.allCases, id: \.self) { elevator in
-                    ElevatorButton(
-                        elevator: elevator,
-                        selectedElevator: $selectedElevator
-                    )
+            VStack(spacing: 8) {
+                // Frequently used elevators - larger row
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
+                    ForEach(ElevatorType.frequentElevators, id: \.self) { elevator in
+                        ElevatorButton(
+                            elevator: elevator,
+                            selectedElevator: $selectedElevator,
+                            isFrequentlyUsed: true
+                        )
+                    }
+                }
+                
+                // Less frequently used elevators - smaller row
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                    ForEach(ElevatorType.lessFrequentElevators, id: \.self) { elevator in
+                        ElevatorButton(
+                            elevator: elevator,
+                            selectedElevator: $selectedElevator,
+                            isFrequentlyUsed: false
+                        )
+                    }
                 }
             }
         }
@@ -31,9 +46,30 @@ struct ElevatorSelectionView: View {
 struct ElevatorButton: View {
     let elevator: ElevatorType
     @Binding var selectedElevator: ElevatorType?
+    let isFrequentlyUsed: Bool
     
     var isSelected: Bool {
         selectedElevator == elevator
+    }
+    
+    var buttonColor: Color {
+        if isFrequentlyUsed {
+            return .blue
+        } else {
+            return .orange
+        }
+    }
+    
+    var buttonHeight: CGFloat {
+        isFrequentlyUsed ? 60 : 50
+    }
+    
+    var iconSize: Font {
+        isFrequentlyUsed ? .title2 : .title3
+    }
+    
+    var textSize: Font {
+        isFrequentlyUsed ? .subheadline : .caption
     }
     
     var body: some View {
@@ -41,24 +77,24 @@ struct ElevatorButton: View {
             selectedElevator = elevator
         }) {
             VStack {
-                Image(systemName: "elevator")
-                    .font(.title)
-                    .foregroundColor(isSelected ? .white : .green)
+                Image(systemName: "arrow.up.arrow.down.square")
+                    .font(iconSize)
+                    .foregroundColor(isSelected ? .white : buttonColor)
                 
                 Text(elevator.rawValue)
-                    .font(.headline)
+                    .font(textSize)
                     .fontWeight(.semibold)
-                    .foregroundColor(isSelected ? .white : .green)
+                    .foregroundColor(isSelected ? .white : buttonColor)
             }
-            .frame(height: 80)
+            .frame(height: buttonHeight)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.green : Color.green.opacity(0.1))
+                    .fill(isSelected ? buttonColor : buttonColor.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.green, lineWidth: isSelected ? 0 : 2)
+                    .stroke(buttonColor, lineWidth: isSelected ? 0 : 2)
             )
         }
         .buttonStyle(PlainButtonStyle())

@@ -13,6 +13,11 @@ struct FloorSelectionView: View {
     @State private var showingOtherFloorInput = false
     @State private var otherFloorText = ""
     
+    // Determine color based on title
+    private var buttonColor: Color {
+        title.contains("Starting") ? .green : .red
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
@@ -24,7 +29,8 @@ struct FloorSelectionView: View {
                     FloorButton(
                         floor: floor,
                         selectedFloor: $selectedFloor,
-                        showingOtherFloorInput: $showingOtherFloorInput
+                        showingOtherFloorInput: $showingOtherFloorInput,
+                        buttonColor: buttonColor
                     )
                 }
             }
@@ -43,6 +49,7 @@ struct FloorButton: View {
     let floor: FloorOption
     @Binding var selectedFloor: String
     @Binding var showingOtherFloorInput: Bool
+    let buttonColor: Color
     
     var isSelected: Bool {
         if floor == .other {
@@ -62,22 +69,22 @@ struct FloorButton: View {
             VStack {
                 Image(systemName: floor == .lobby ? "building" : "rectangle.grid.1x2")
                     .font(.title2)
-                    .foregroundColor(isSelected ? .white : .blue)
+                    .foregroundColor(isSelected ? .white : buttonColor)
                 
                 Text(floor == .other ? (selectedFloor.isEmpty || FloorOption.allCases.dropLast().map(\.rawValue).contains(selectedFloor) ? "Other" : selectedFloor) : floor.rawValue)
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundColor(isSelected ? .white : .blue)
+                    .foregroundColor(isSelected ? .white : buttonColor)
             }
             .frame(height: 60)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.blue : Color.blue.opacity(0.1))
+                    .fill(isSelected ? buttonColor : buttonColor.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.blue, lineWidth: isSelected ? 0 : 1)
+                    .stroke(buttonColor, lineWidth: isSelected ? 0 : 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
