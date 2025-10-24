@@ -46,21 +46,43 @@ class ExportManager: ObservableObject {
 struct HistoryView: View {
     @ObservedObject var dataManager: ElevatorDataManager
     @StateObject private var exportManager = ExportManager()
+    @ObservedObject private var syncStatus: SyncStatusManager
+    
+    init(dataManager: ElevatorDataManager) {
+        self.dataManager = dataManager
+        self.syncStatus = dataManager.syncStatus
+    }
     
     var body: some View {
         NavigationView {
-            List {
-                if dataManager.entries.isEmpty {
-                    ContentUnavailableView(
-                        "No Rides Recorded",
-                        systemImage: "arrow.up.arrow.down.square",
-                        description: Text("Start tracking your elevator rides to see them here.")
-                    )
-                } else {
-                    ForEach(dataManager.entries) { entry in
-                        ElevatorEntryRow(entry: entry)
+            VStack {
+                // CloudKit status bar
+                if dataManager.cloudKitStatus != "Available" {
+                    HStack {
+                        Image(systemName: "icloud.slash")
+                            .foregroundColor(.orange)
+                        Text("CloudKit: \(dataManager.cloudKitStatus)")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        Spacer()
                     }
-                    .onDelete(perform: deleteEntries)
+                    .padding(.horizontal)
+                    .padding(.top, 4)
+                }
+                
+                List {
+                    if dataManager.entries.isEmpty {
+                        ContentUnavailableView(
+                            "No Rides Recorded",
+                            systemImage: "arrow.up.arrow.down.square",
+                            description: Text("Start tracking your elevator rides to see them here.")
+                        )
+                    } else {
+                        ForEach(dataManager.entries) { entry in
+                            ElevatorEntryRow(entry: entry)
+                        }
+                        .onDelete(perform: deleteEntries)
+                    }
                 }
             }
             .navigationTitle("Ride History")
@@ -76,10 +98,21 @@ struct HistoryView: View {
                             .foregroundColor(.red)
                         }
                         
-                        Button("Sync") {
-                            dataManager.syncWithCloudKit()
+                        Button {
+                            dataManager.performManualSync()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if syncStatus.isLoading {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "arrow.clockwise")
+                                }
+                                Text("Sync")
+                            }
                         }
                         .foregroundColor(.blue)
+                        .disabled(syncStatus.isLoading)
                     }
                 }
                 
@@ -114,6 +147,13 @@ struct HistoryView: View {
                     }
                     .padding()
                 }
+            }
+            .alert("Sync Status", isPresented: $syncStatus.isShowingAlert) {
+                Button("OK") {
+                    syncStatus.hide()
+                }
+            } message: {
+                Text(syncStatus.message)
             }
             .alert("Export Error", isPresented: $exportManager.showingError) {
                 Button("OK") { }

@@ -10,10 +10,46 @@ import Combine
 import CloudKit
 
 @MainActor
+class SyncStatusManager: ObservableObject {
+    @Published var isShowingAlert = false
+    @Published var message = ""
+    @Published var isLoading = false
+    
+    func startLoading() {
+        self.isLoading = true
+    }
+    
+    func showResult(message: String, autoHide: Bool = true) {
+        self.message = message
+        self.isLoading = false
+        self.isShowingAlert = true
+        
+        if autoHide {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                self.isShowingAlert = false
+            }
+        }
+    }
+    
+    func showError(_ message: String) {
+        self.message = message
+        self.isLoading = false
+        self.isShowingAlert = true
+        // Don't auto-hide errors
+    }
+    
+    func hide() {
+        self.isShowingAlert = false
+    }
+}
+
+@MainActor
 class ElevatorDataManager: ObservableObject {
     @Published var entries: [ElevatorEntry] = []
     @Published var isLoading = false
     @Published var cloudKitStatus: String = "Unknown"
+    
+    let syncStatus = SyncStatusManager()
     
     private let container = CKContainer(identifier: "iCloud.ElTrackCloudKit")
     private let recordType = "ElevatorEntry"
@@ -131,45 +167,10 @@ class ElevatorDataManager: ObservableObject {
             self.isLoading = true
         }
         
-        let database = container.privateCloudDatabase
-        
-        // Use a simple query without sort descriptors to avoid queryable field issues
-        let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
-        // Don't add sort descriptors initially - we'll sort locally
-        
         do {
-            let (matchResults, _) = try await database.records(matching: query)
-            
-            let records = matchResults.compactMap { (recordID, result) -> CKRecord? in
-                switch result {
-                case .success(let record):
-                    return record
-                case .failure(let error):
-                    print("Failed to fetch record \(recordID): \(error)")
-                    return nil
-                }
-            }
-            
-            let cloudEntries = records.compactMap { record in
-                self.convertRecordToEntry(record)
-            }
-            
-            await MainActor.run {
-                // Merge with local entries, avoiding duplicates
-                let localIds = Set(self.entries.map { $0.id })
-                let newEntries = cloudEntries.filter { !localIds.contains($0.id) }
-                self.entries.append(contentsOf: newEntries)
-                // Sort locally by timestamp (most recent first)
-                self.entries.sort { $0.timestamp > $1.timestamp }
-                self.saveToUserDefaults()
-                self.isLoading = false
-                print("Successfully synced \(newEntries.count) new entries from CloudKit (total: \(cloudEntries.count) cloud entries)")
-            }
+            try await fetchFromCloudKitWithErrorHandling()
         } catch let error as CKError {
             print("CloudKit fetch error: \(error.localizedDescription)")
-            await MainActor.run {
-                self.isLoading = false
-            }
             
             // Try a fallback approach for first-time schema setup
             if error.code == .unknownItem || error.code == .invalidArguments {
@@ -178,9 +179,10 @@ class ElevatorDataManager: ObservableObject {
             }
         } catch {
             print("Unexpected fetch error: \(error)")
-            await MainActor.run {
-                self.isLoading = false
-            }
+        }
+        
+        await MainActor.run {
+            self.isLoading = false
         }
     }
     
@@ -293,6 +295,111 @@ class ElevatorDataManager: ObservableObject {
     func syncWithCloudKit() {
         Task {
             await fetchFromCloudKit()
+        }
+    }
+    
+    // Manual sync with user feedback
+    func performManualSync() {
+        print("=== Manual sync started ===")
+        
+        // Only show loading state, no alert yet
+        syncStatus.startLoading()
+        
+        Task {
+            let initialCount = entries.count
+            print("Initial entry count: \(initialCount)")
+            
+            do {
+                let syncResult = try await fetchFromCloudKitWithErrorHandling()
+                print("Fetch completed successfully")
+                
+                let finalCount = entries.count
+                print("Final entry count: \(finalCount)")
+                print("Downloaded: \(syncResult.downloaded), Duplicates removed: \(syncResult.duplicatesRemoved)")
+                
+                let message: String
+                if syncResult.downloaded > 0 && syncResult.duplicatesRemoved > 0 {
+                    message = "Sync complete! Downloaded \(syncResult.downloaded) new record\(syncResult.downloaded == 1 ? "" : "s") and removed \(syncResult.duplicatesRemoved) duplicate\(syncResult.duplicatesRemoved == 1 ? "" : "s")."
+                } else if syncResult.downloaded > 0 {
+                    message = "Sync complete! Downloaded \(syncResult.downloaded) new record\(syncResult.downloaded == 1 ? "" : "s")."
+                } else if syncResult.duplicatesRemoved > 0 {
+                    message = "Sync complete! Removed \(syncResult.duplicatesRemoved) duplicate record\(syncResult.duplicatesRemoved == 1 ? "" : "s")."
+                } else {
+                    let totalRecords = entries.count
+                    message = "Sync complete! Everything is up to date (\(totalRecords) record\(totalRecords == 1 ? "" : "s") total)."
+                }
+                
+                print("Showing sync result: \(message)")
+                await MainActor.run {
+                    self.syncStatus.showResult(message: message)
+                }
+                
+            } catch {
+                print("Sync error: \(error)")
+                let errorMessage = "Sync failed: \(error.localizedDescription)"
+                await MainActor.run {
+                    self.syncStatus.showError(errorMessage)
+                }
+            }
+        }
+    }
+    
+    // Separate method that can throw errors for better error handling
+    private func fetchFromCloudKitWithErrorHandling() async throws -> (downloaded: Int, duplicatesRemoved: Int) {
+        let database = container.privateCloudDatabase
+        
+        // Use a simple query without sort descriptors to avoid queryable field issues
+        let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
+        
+        let (matchResults, _) = try await database.records(matching: query)
+        
+        let records = matchResults.compactMap { (recordID, result) -> CKRecord? in
+            switch result {
+            case .success(let record):
+                return record
+            case .failure(let error):
+                print("Failed to fetch record \(recordID): \(error)")
+                return nil
+            }
+        }
+        
+        let cloudEntries = records.compactMap { record in
+            self.convertRecordToEntry(record)
+        }
+        
+        return await MainActor.run {
+            let initialCount = self.entries.count
+            
+            // Create sets for comparison
+            let localIds = Set(self.entries.map { $0.id })
+            let cloudIds = Set(cloudEntries.map { $0.id })
+            
+            // Find new entries from cloud that we don't have locally
+            let newCloudEntries = cloudEntries.filter { !localIds.contains($0.id) }
+            
+            // Find entries we have locally that aren't in cloud (shouldn't happen normally)
+            let localOnlyEntries = self.entries.filter { !cloudIds.contains($0.id) }
+            
+            // Add new entries from cloud
+            self.entries.append(contentsOf: newCloudEntries)
+            
+            // Remove any entries that were deleted from cloud (if any)
+            let duplicatesRemoved = self.entries.count - (initialCount + newCloudEntries.count)
+            
+            // Sort by timestamp (most recent first)
+            self.entries.sort { $0.timestamp > $1.timestamp }
+            self.saveToUserDefaults()
+            
+            let downloaded = newCloudEntries.count
+            
+            if downloaded > 0 {
+                print("Successfully synced \(downloaded) new entries from CloudKit")
+            }
+            if localOnlyEntries.count > 0 {
+                print("Found \(localOnlyEntries.count) local-only entries")
+            }
+            
+            return (downloaded: downloaded, duplicatesRemoved: duplicatesRemoved)
         }
     }
     
