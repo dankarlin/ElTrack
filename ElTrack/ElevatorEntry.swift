@@ -97,4 +97,25 @@ enum FloorOption: String, CaseIterable, Codable {
             return "Floor \(rawValue)"
         }
     }
+    
+    var iconName: String {
+        switch self {
+        case .floor75:
+            return "house.fill"
+        case .floor48:
+            return "cup.and.saucer.fill"
+        case .floor16:
+            return "figure.pool.swim"
+        case .floor14:
+            return "dumbbell.fill"
+        case .floor8:
+            return "archivebox.fill"
+        case .floor7:
+            return "car.fill"
+        case .lobby:
+            return "building.fill"
+        case .other:
+            return "ellipsis.circle.fill"
+        }
+    }
 }

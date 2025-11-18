@@ -67,7 +67,7 @@ struct FloorButton: View {
             }
         }) {
             VStack {
-                Image(systemName: floor == .lobby ? "building" : "rectangle.grid.1x2")
+                Image(systemName: floor.iconName)
                     .font(.title2)
                     .foregroundColor(isSelected ? .white : buttonColor)
                 
